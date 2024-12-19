@@ -22,7 +22,7 @@ Bu uygulama, kullanıcıların geçmiş verilere dayalı olarak çalışan taleb
 - 📧 **E-posta:** [furkansukan10@gmail.com](mailto:furkansukan10@gmail.com)
 - 🪪 **LinkedIn:** [furkansukan](https://www.linkedin.com/in/furkansukan)
 - 🔗 **Kaggle:** [furkansukan](https://www.kaggle.com/furkansukan)
-- 💻 ** Uygulam Sitesi:** [Shift Optimization](https://shiftoptimization-furkansukan.streamlit.app/)
+- 💻 **Uygulama Sitesi:** [Shift Optimization](https://shiftoptimization-furkansukan.streamlit.app/)
 
 ## 💡 Proje Amacı:
 Bu proje, özellikle iş gücü yönetimi ve vardiya planlaması yapan şirketler için önemli bir araçtır. Zaman serisi tahminleri ve optimizasyon teknikleriyle, fazla mesaiyi, eksik çalışanları ve verimsiz vardiya planlarını minimize ederek **iş gücü maliyetlerini düşürmeye** yardımcı olur. Bu, işletmelerin daha verimli çalışmasına ve kaynaklarını daha etkin kullanmasına olanak tanır.
