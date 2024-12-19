@@ -3,7 +3,6 @@ import random
 import pandas as pd
 from prophet import Prophet
 import pulp
-import plotly.express as px
 
 # Örnek veri üretimi
 def generate_sample_data(start_date="2023-01-01", periods=365):
