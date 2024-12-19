@@ -1,18 +1,14 @@
-import random
-import pandas as pd
-import pulp
 import streamlit as st
+import pandas as pd
+import random
 from prophet import Prophet
+import pulp
 
-# 1. Rastgele veri üretimi
-@st.cache
-def generate_sample_data(start_date="2023-01-01", periods=365):
-    dates = pd.date_range(start=start_date, periods=periods, freq="D")
-    values = [random.randint(10, 100) for _ in range(periods)]
-    return pd.DataFrame({"ds": dates, "y": values})
+# 1. Rastgele çalışan isimleri oluşturma fonksiyonu
+def generate_employee_names(num):
+    return [f"Calisan_{i+1}" for i in range(num)]
 
 # 2. Prophet ile talep tahmini
-@st.cache
 def forecast_demand(data, future_days=7):
     model = Prophet()
     model.fit(data)
@@ -20,17 +16,18 @@ def forecast_demand(data, future_days=7):
     forecast = model.predict(future)
     return forecast[['ds', 'yhat']].tail(future_days)
 
-# 3. Tahminlere göre çalışan ihtiyacını belirleme
+# 3. Talebe göre çalışan ihtiyacı hesaplama
 def calculate_staff_demand(forecasted_values, scaling_factor=0.1):
-    demand = {}
-    days_of_week = ["Pazartesi", "Salı", "Çarşamba", "Perşembe", "Cuma", "Cumartesi", "Pazar"]
-    for i, row in forecasted_values.iterrows():
-        day_name = days_of_week[i % 7]
-        demand[day_name] = max(1, int(row['yhat'] * scaling_factor))
+    demand = {row['ds'].strftime('%A'): max(1, int(row['yhat'] * scaling_factor)) for _, row in forecasted_values.iterrows()}
     return demand
 
-# 4. Optimize vardiya planlaması
+# 4. Vardiya optimizasyonu
 def optimize_vardiya(calisanlar, gunler, calisan_ihtiyaci, izinli_gunler, max_calismalar, gunluk_ucret):
+    # Optimizasyon yapılmadan önceki maliyet
+    toplam_maas_oncesi = sum(
+        calisan_ihtiyaci[g] * gunluk_ucret for g in gunler
+    )
+
     # Problem tanımı
     problem = pulp.LpProblem("Vardiya_Planlama", pulp.LpMinimize)
 
@@ -40,76 +37,75 @@ def optimize_vardiya(calisanlar, gunler, calisan_ihtiyaci, izinli_gunler, max_ca
     # Amaç fonksiyonu
     problem += pulp.lpSum(vardiyalar[(c, g)] * gunluk_ucret for c in calisanlar for g in gunler)
 
-    # Her gün yeterli çalışan atanmalı
+    # Kısıtlar
     for g in gunler:
-        problem += pulp.lpSum(vardiyalar[(c, g)] for c in calisanlar) >= calisan_ihtiyaci[g], f"Gun_{g}_Kisit"
+        problem += pulp.lpSum(vardiyalar[(c, g)] for c in calisanlar) >= calisan_ihtiyaci[g], f"Talep_{g}"
 
-    # Çalışanların izin günleri dikkate alınmalı
-    for c in calisanlar:
-        for g in izinli_gunler[c]:
-            problem += vardiyalar[(c, g)] == 0, f"Izin_{c}_{g}"
-
-    # Çalışanların haftalık maksimum çalışma günleri
     for c in calisanlar:
         problem += pulp.lpSum(vardiyalar[(c, g)] for g in gunler) <= max_calismalar[c], f"Max_{c}"
+        for g in izinli_gunler[c]:
+            problem += vardiyalar[(c, g)] == 0, f"Izin_{c}_{g}"
 
     # Problemi çöz
     problem.solve()
 
-    # Optimizasyon sonrası plan
-    plan = {}
+    # Optimizasyon sonrası maliyet ve planlama
+    toplam_maas_sonrasi = 0
+    plan = {g: [] for g in gunler}
     for g in gunler:
-        plan[g] = [c for c in calisanlar if vardiyalar[(c, g)].value() == 1]
+        for c in calisanlar:
+            if vardiyalar[(c, g)].value() == 1:
+                plan[g].append(c)
+                toplam_maas_sonrasi += gunluk_ucret
 
-    # Optimizasyon sonrası maliyet
-    optimizasyon_maas = pulp.value(problem.objective)
-    return plan, optimizasyon_maas
+    return toplam_maas_oncesi, toplam_maas_sonrasi, toplam_maas_oncesi - toplam_maas_sonrasi, plan
 
-# Streamlit uygulaması
-st.title("Vardiya Optimizasyon Uygulaması")
+# 5. Streamlit uygulaması
+def main():
+    st.title("Vardiya Optimizasyon Uygulaması")
 
-# Çalışan sayısı
-calisan_sayisi = st.number_input("Çalışan Sayısını Girin:", min_value=1, value=5, step=1)
-calisanlar = [f"Çalışan_{i+1}" for i in range(calisan_sayisi)]
+    # Çalışan sayısı alma
+    num_employees = st.number_input("Çalışan Sayısı", min_value=1, step=1, value=5)
+    calisanlar = generate_employee_names(num_employees)
 
-# Çalışan izin günleri
-izinli_gunler = {}
-gunler = ["Pazartesi", "Salı", "Çarşamba", "Perşembe", "Cuma", "Cumartesi", "Pazar"]
-for calisan in calisanlar:
-    izinli_gunler[calisan] = st.multiselect(f"{calisan} için izin günlerini seçin:", gunler)
+    # Çalışan izin günleri
+    izinli_gunler = {}
+    gunler = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+    for calisan in calisanlar:
+        izinli_gunler[calisan] = st.multiselect(f"{calisan} için izin günleri:", gunler)
 
-# Maksimum çalışma günleri
-max_calismalar = {}
-for calisan in calisanlar:
-    max_calismalar[calisan] = st.number_input(f"{calisan} için maksimum çalışma gününü girin:", min_value=1, max_value=7, value=5)
+    # Maksimum çalışma günleri alma
+    max_calismalar = {calisan: st.number_input(f"{calisan} için maksimum çalışma günü:", min_value=1, step=1, value=5) for calisan in calisanlar}
 
-# Günlük ücret
-gunluk_ucret = st.number_input("Çalışan başına günlük ücreti girin (TL):", min_value=1, value=1000, step=100)
+    # Günlük ücret alma
+    gunluk_ucret = st.number_input("Günlük Ücret", min_value=1, step=1, value=1000)
 
-# Rastgele talep tahmini
-sample_data = generate_sample_data()
-forecasted_data = forecast_demand(sample_data)
-calisan_ihtiyaci = calculate_staff_demand(forecasted_data)
-st.subheader("7 Günlük Tahmini Talep")
-st.write(pd.DataFrame(calisan_ihtiyaci.items(), columns=["Gün", "Çalışan İhtiyacı"]))
+    # 7 günlük talep tahmini
+    st.header("7 Günlük Talep Tahmini")
+    sample_data = pd.DataFrame({
+        "ds": pd.date_range(start="2024-01-01", periods=365, freq="D"),
+        "y": [random.randint(10, 100) for _ in range(365)]
+    })
+    forecasted_data = forecast_demand(sample_data)
+    calisan_ihtiyaci = calculate_staff_demand(forecasted_data)
+    st.table(forecasted_data.rename(columns={"ds": "Tarih", "yhat": "Tahmini Talep"}))
 
-# Optimizasyon
-if st.button("Vardiya Optimizasyonunu Başlat"):
-    plan, optimizasyon_maas = optimize_vardiya(calisanlar, gunler, calisan_ihtiyaci, izinli_gunler, max_calismalar, gunluk_ucret)
+    # Vardiya optimizasyonu
+    st.header("Vardiya Optimizasyonu")
+    toplam_oncesi, toplam_sonrasi, kar, vardiya_plani = optimize_vardiya(calisanlar, gunler, calisan_ihtiyaci, izinli_gunler, max_calismalar, gunluk_ucret)
 
-    # Optimizasyon öncesi maliyet
-    optimize_oncesi_maas = sum(calisan_ihtiyaci[g] * gunluk_ucret for g in gunler)
+    # Sonuçları gösterme
+    st.subheader("Optimizasyon Öncesi ve Sonrası Kazanç Karşılaştırması")
+    st.write(pd.DataFrame({
+        "Durum": ["Optimizasyon Öncesi", "Optimizasyon Sonrası", "Kazanılan Kar"],
+        "Tutar (TL)": [toplam_oncesi, toplam_sonrasi, kar]
+    }))
 
-    # Kar hesaplama
-    kar = optimize_oncesi_maas - optimizasyon_maas
-
-    # Sonuçlar
-    st.subheader("Optimizasyon Sonuçları")
-    st.write(f"Optimizasyon Öncesi Toplam Maaş: {optimize_oncesi_maas} TL")
-    st.write(f"Optimizasyon Sonrası Toplam Maaş: {optimizasyon_maas} TL")
-    st.write(f"Optimizasyondan Kazanılan: {kar} TL")
-
-    # Vardiya planı
     st.subheader("Vardiya Planı")
-    vardiya_tablosu = pd.DataFrame.from_dict(plan, orient="index", columns=[f"Çalışan {i+1}" for i in range(len(calisanlar))])
-    st.write(vardiya_tablosu)
+    st.write(pd.DataFrame({
+        "Gün": list(vardiya_plani.keys()),
+        "Çalışanlar": [", ".join(vardiya_plani[g]) for g in gunler]
+    }))
+
+if __name__ == "__main__":
+    main()
